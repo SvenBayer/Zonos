@@ -153,13 +153,13 @@ class Bottleneck(nn.Module):
 class ResNet(nn.Module):
     def __init__(self, in_planes, block, num_blocks, in_ch=1, feat_dim="2d", **kwargs):
         super(ResNet, self).__init__()
-        if feat_dim == "1d":
+        if (feat_dim == "1d"):
             self.NormLayer = nn.BatchNorm1d
             self.ConvLayer = nn.Conv1d
-        elif feat_dim == "2d":
+        elif (feat_dim == "2d"):
             self.NormLayer = nn.BatchNorm2d
             self.ConvLayer = nn.Conv2d
-        elif feat_dim == "3d":
+        elif (feat_dim == "3d"):
             self.NormLayer = nn.BatchNorm3d
             self.ConvLayer = nn.Conv3d
         else:
@@ -385,17 +385,61 @@ class SpeakerEmbedding(nn.Module):
         return self.model(wav).to(wav.device)
 
 
+import json
+from pathlib import Path
+
 class SpeakerEmbeddingLDA(nn.Module):
     def __init__(self, device: str = DEFAULT_DEVICE):
         super().__init__()
-        spk_model_path = hf_hub_download(
-            repo_id="Zyphra/Zonos-v0.1-speaker-embedding",
-            filename="ResNet293_SimAM_ASP_base.pt",
-        )
-        lda_spk_model_path = hf_hub_download(
-            repo_id="Zyphra/Zonos-v0.1-speaker-embedding",
-            filename="ResNet293_SimAM_ASP_base_LDA-128.pt",
-        )
+        
+        # Create tmp directory and cache file if they don't exist
+        tmp_dir = Path("tmp")
+        tmp_dir.mkdir(exist_ok=True)
+        cache_file = tmp_dir / "cache.json"
+        
+        # Initialize cache
+        if cache_file.exists():
+            with open(cache_file, 'r') as f:
+                cache = json.load(f)
+        else:
+            cache = {}
+
+        # Check for speaker embedding files in cache
+        spk_model_path = None
+        lda_spk_model_path = None
+        
+        if "speaker_embedding" in cache:
+            paths = cache["speaker_embedding"]
+            if (Path(paths.get("base", "")).exists() and 
+                Path(paths.get("lda", "")).exists()):
+                spk_model_path = paths["base"]
+                lda_spk_model_path = paths["lda"]
+                print("Loading speaker embedding models from cache")
+
+        # Download if not in cache or files missing
+        if not spk_model_path:
+            print("Downloading speaker embedding base model...")
+            spk_model_path = hf_hub_download(
+                repo_id="Zyphra/Zonos-v0.1-speaker-embedding",
+                filename="ResNet293_SimAM_ASP_base.pt",
+            )
+            
+        if not lda_spk_model_path:
+            print("Downloading speaker embedding LDA model...")
+            lda_spk_model_path = hf_hub_download(
+                repo_id="Zyphra/Zonos-v0.1-speaker-embedding",
+                filename="ResNet293_SimAM_ASP_base_LDA-128.pt",
+            )
+            
+            # Update cache
+            cache["speaker_embedding"] = {
+                "base": str(spk_model_path),
+                "lda": str(lda_spk_model_path)
+            }
+            
+            # Save updated cache
+            with open(cache_file, 'w') as f:
+                json.dump(cache, f, indent=2)
 
         self.device = device
         with torch.device(device):
