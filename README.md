@@ -1,3 +1,21 @@
+# Zonos API in Docker
+
+This repository contains a files to create Docker container to run Zonos with an API. For easy usage, just copy the docker-compose.yml and pull the Docker container sven-bayer/zonos-api
+
+---
+
+This repository contains everything to run Zonos in Docker, even on Windows. It exposes an API on port 7861 that you can try out with this Postman script. Make sure to first create your refrence audio folder. See the description at the bottom.
+
+https://github.com/SvenBayer/Zonos-API-Postman
+
+Make sure to first create the folder ref_audio and place your reference audio that you want to clone with the name reference-audio.wav inside. Then you can start the container.
+
+Once you start the container with docker-compose up, the container will first download the model of Zonos from Huggingface. The model is not included. This is around 3.7GB, so be patient. On Docker Desktop on Windows, the progress is sometimes not shown and it might look like it is stuck. Use the TaskManager and check the Network traffic to verify. Once everything is started up, the container will store inside the model and will set in tmp/cache.json the paths to the stored files. This will allow for faster future start-ups via docker-compose up. Be aware that the first request to the container always takes a bit longer. Consecutive requests are faster.
+
+Read the zonos_api.py to see what parameters are available and use the postman collection to experiment.
+
+---
+
 # Zonos-v0.1
 
 <div align="center">
@@ -149,6 +167,7 @@ git clone https://github.com/Zyphra/Zonos.git
 cd Zonos
 
 # For starting the API
+Create a folder ref_audio and place your reference audio with the name reference-audio.wav in it.
 docker pull sven-bayer/zonos-api
 docker compose up
 
