@@ -148,8 +148,17 @@ uv run sample.py
 git clone https://github.com/Zyphra/Zonos.git
 cd Zonos
 
-# For gradio
+# For starting the API
+docker pull sven-bayer/zonos-api
 docker compose up
+
+# API Endpoint
+Use the endpoint at: http://localhost:7861/
+- status
+- models
+- languages
+- synthesize
+Use my postman repository to learn how these endpoints work.
 
 # Or for development you can do
 docker build -t zonos .

@@ -108,6 +108,14 @@ async def get_supported_languages():
     """Get list of supported language codes"""
     return {"supported_languages": supported_language_codes}
 
+@app.get("/status")
+async def get_status():
+    """Check if model and speaker embedding are initialized"""
+    return {
+        "model_loaded": CURRENT_MODEL is not None,
+        "speaker_embedded": SPEAKER_EMBEDDING is not None
+    }
+
 @app.post("/synthesize")
 async def synthesize_speech(request: TTSRequest):
     """Generate speech from text with optional speaker cloning"""
@@ -184,4 +192,4 @@ async def synthesize_speech(request: TTSRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    uvicorn.run("zonos_api:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("zonos_api:app", host="0.0.0.0", port=7861, reload=False)

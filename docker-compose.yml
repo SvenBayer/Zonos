@@ -5,12 +5,30 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: zonos_container
+    image: sven-bayer/zonos-api
+    container_name: zonos-api
+
+    # Start the API server
+    # command: ["python3", "zonos_api.py"]
+    
+    # Use NVIDIA runtime for GPU
     runtime: nvidia
-    network_mode: "host"
-    stdin_open: true
-    tty: true
-    command: ["python3", "gradio_interface.py"]
     environment:
       - NVIDIA_VISIBLE_DEVICES=0
-      - GRADIO_SHARE=False
+
+    # Mount reference audio folder
+    volumes:
+      - ./ref_audio:/app/ref_audio
+
+    # Share the host network stack
+    # (This makes the container’s port 7861 available directly on the host)
+    # network_mode: "host"
+    ports:
+      - "7861:7861"
+
+    # So you can attach an interactive shell if needed
+    stdin_open: true
+    tty: true
+    
+    #
+    # Then you can access http://localhost:7861/status from outside.
