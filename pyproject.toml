@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Text-to-speech by Zyphra"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
+dependencies = [pip install poetry
+
     "torch>=2.5.1",
     "setuptools",
     "packaging",

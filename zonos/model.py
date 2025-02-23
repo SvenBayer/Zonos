@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Callable
 
 import safetensors
@@ -58,8 +59,43 @@ class Zonos(nn.Module):
     def from_pretrained(
         cls, repo_id: str, revision: str | None = None, device: str = DEFAULT_DEVICE, **kwargs
     ) -> "Zonos":
+        # Create tmp directory if it doesn't exist
+        tmp_dir = Path("tmp")
+        tmp_dir.mkdir(exist_ok=True)
+        cache_file = tmp_dir / "cache.json"
+        
+        # Try to load cached paths
+        if cache_file.exists():
+            with open(cache_file, 'r') as f:
+                cache = json.load(f)
+                if repo_id in cache:
+                    cached_paths = cache[repo_id]
+                    config_path = cached_paths['config']
+                    model_path = cached_paths['model']
+                    # Verify files still exist
+                    if Path(config_path).exists() and Path(model_path).exists():
+                        print(f"Loading cached model files for {repo_id}")
+                        return cls.from_local(config_path, model_path, device, **kwargs)
+        else:
+            cache = {}
+
+        # Download files if not cached or files missing
+        print(f"Downloading model files for {repo_id}")
         config_path = hf_hub_download(repo_id=repo_id, filename="config.json", revision=revision)
+        print("Downloaded config.json to path:", config_path)
         model_path = hf_hub_download(repo_id=repo_id, filename="model.safetensors", revision=revision)
+        print("Downloaded model.safetensors to path:", model_path)
+
+        # Update cache
+        cache[repo_id] = {
+            'config': config_path,
+            'model': model_path
+        }
+        
+        # Save updated cache
+        with open(cache_file, 'w') as f:
+            json.dump(cache, f, indent=2)
+
         return cls.from_local(config_path, model_path, device, **kwargs)
 
     @classmethod

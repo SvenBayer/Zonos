@@ -7,19 +7,28 @@ from zonos.model import Zonos, DEFAULT_BACKBONE_CLS as ZonosBackbone
 from zonos.conditioning import make_cond_dict, supported_language_codes
 from zonos.utils import DEFAULT_DEVICE as device
 
-CURRENT_MODEL_TYPE = None
-CURRENT_MODEL = None
+from zonos.speaker_cache import SpeakerCache
 
-SPEAKER_EMBEDDING = None
-SPEAKER_AUDIO_PATH = None
+# Global variables to cache model and speaker data
+CURRENT_MODEL_TYPE = None  # Tracks currently loaded model type
+CURRENT_MODEL = None      # Stores the loaded model instance
+SPEAKER_EMBEDDING = None  # Cached speaker embedding vector
+SPEAKER_AUDIO_PATH = None # Path to last processed speaker audio
 
+# Initialize the speaker cache for storing speaker embeddings as file
+speaker_cache = SpeakerCache()
 
 def load_model_if_needed(model_choice: str):
+    """Loads the selected model if not already loaded, frees memory if switching models.
+       Returns the model"""
     global CURRENT_MODEL_TYPE, CURRENT_MODEL
+    # Only load if different from current model
     if CURRENT_MODEL_TYPE != model_choice:
+        # Clean up existing model from GPU memory
         if CURRENT_MODEL is not None:
             del CURRENT_MODEL
             torch.cuda.empty_cache()
+        # Load new model
         print(f"Loading {model_choice} model...")
         CURRENT_MODEL = Zonos.from_pretrained(model_choice, device=device)
         CURRENT_MODEL.requires_grad_(False).eval()
@@ -117,9 +126,16 @@ def generate_audio(
     """
     Generates audio based on the provided UI parameters.
     We do NOT use language_id or ctc_loss even if the model has them.
+    This function converts input text to speech, considering parameters such as:
+    - Speaker embedding (for voice cloning)
+    - Emotions
+    - Pitch adjustments
+    - Speaking rate
+    - Noise reduction
     """
-    selected_model = load_model_if_needed(model_choice)
+    selected_model = load_model_if_needed(model_choice) # Load the model
 
+    # Convert inputs to correct formats
     speaker_noised_bool = bool(speaker_noised)
     fmax = float(fmax)
     pitch_std = float(pitch_std)
@@ -138,18 +154,32 @@ def generate_audio(
     # This is a bit ew, but works for now.
     global SPEAKER_AUDIO_PATH, SPEAKER_EMBEDDING
 
+    # Randomize Seed (if enabled)
     if randomize_seed:
         seed = torch.randint(0, 2**32 - 1, (1,)).item()
     torch.manual_seed(seed)
 
+    # Compute Speaker Embedding (for Voice Cloning)
+    # If the user provides a reference speaker audio, it extracts the voice features and uses them for synthesis.
     if speaker_audio is not None and "speaker" not in unconditional_keys:
         if speaker_audio != SPEAKER_AUDIO_PATH:
             print("Recomputed speaker embedding")
-            wav, sr = torchaudio.load(speaker_audio)
-            SPEAKER_EMBEDDING = selected_model.make_speaker_embedding(wav, sr)
-            SPEAKER_EMBEDDING = SPEAKER_EMBEDDING.to(device, dtype=torch.bfloat16)
-            SPEAKER_AUDIO_PATH = speaker_audio
+            # Try to load from cache first
+            cached_embedding = speaker_cache.load_cached_embedding(speaker_audio)
+            if cached_embedding is not None:
+                SPEAKER_EMBEDDING = cached_embedding
+                SPEAKER_AUDIO_PATH = speaker_audio
+            else:
+                print("Computing new speaker embedding...")
+                wav, sr = torchaudio.load(speaker_audio)
+                SPEAKER_EMBEDDING = selected_model.make_speaker_embedding(wav, sr)
+                SPEAKER_EMBEDDING = SPEAKER_EMBEDDING.to(device, dtype=torch.bfloat16)
+                # Save to cache
+                speaker_cache.save_embedding_to_cache(speaker_audio, SPEAKER_EMBEDDING)
+                SPEAKER_AUDIO_PATH = speaker_audio
 
+    # Encode Prefix Audio (for continuation)
+    # This allows speech synthesis to continue from an existing audio file.
     audio_prefix_codes = None
     if prefix_audio is not None:
         wav_prefix, sr_prefix = torchaudio.load(prefix_audio)
@@ -158,9 +188,12 @@ def generate_audio(
         wav_prefix = wav_prefix.to(device, dtype=torch.float32)
         audio_prefix_codes = selected_model.autoencoder.encode(wav_prefix.unsqueeze(0))
 
+    # Prepare Input Conditions
+    # Emotion Tensor: Represents emotions like happiness, sadness, anger.
     emotion_tensor = torch.tensor(list(map(float, [e1, e2, e3, e4, e5, e6, e7, e8])), device=device)
 
     vq_val = float(vq_single)
+    # VQ Score: Controls the quality of speech synthesis.
     vq_tensor = torch.tensor([vq_val] * 8, device=device).unsqueeze(0)
 
     cond_dict = make_cond_dict(
@@ -186,6 +219,8 @@ def generate_audio(
         progress((step, estimated_total_steps))
         return True
 
+    # Generate Audio
+    # Uses a sampling algorithm (top_p, top_k, cfg_scale) to control randomness and quality.
     codes = selected_model.generate(
         prefix_conditioning=conditioning,
         audio_prefix_codes=audio_prefix_codes,
@@ -196,14 +231,35 @@ def generate_audio(
         callback=update_progress,
     )
 
+    # Decode the generated codes to audio
+    # Converts generated audio tokens back into waveform.
+    # Returns the audio output and randomized seed (if applicable).
     wav_out = selected_model.autoencoder.decode(codes).cpu().detach()
     sr_out = selected_model.autoencoder.sampling_rate
     if wav_out.dim() == 2 and wav_out.size(0) > 1:
         wav_out = wav_out[0:1, :]
     return (sr_out, wav_out.squeeze().numpy()), seed
 
-
 def build_interface():
+    """Build User Interface with Gradio.
+    Creates a UI for the Zonos TTS model using gradio.Blocks.
+    Provides dropdowns, sliders, checkboxes, and buttons for selecting models and adjusting settings.
+    Main audio generation function that:
+        1. Processes input parameters and converts them to appropriate types
+        2. Handles speaker embedding generation/caching
+        3. Processes optional audio prefix for continuation
+        4. Sets up emotion and VQ tensors
+        5. Creates conditioning dictionary
+        6. Generates audio using the model
+        7. Returns the generated audio waveform
+        
+        Key features:
+        - Supports random or fixed seeds
+        - Can clone speaker voices from audio
+        - Allows audio continuation from prefix
+        - Handles emotion control via 8 parameters
+        - Supports various sampling parameters for generation quality control
+"""
     supported_models = []
     if "transformer" in ZonosBackbone.supported_architectures:
         supported_models.append("Zyphra/Zonos-v0.1-transformer")
@@ -216,12 +272,16 @@ def build_interface():
             "| This probably means the mamba-ssm library has not been installed."
         )
 
+    # Load last used model and speaker
+    last_model, last_speaker = speaker_cache.load_last_model()
+    default_model = last_model if last_model in supported_models else supported_models[0]
+
     with gr.Blocks() as demo:
         with gr.Row():
             with gr.Column():
                 model_choice = gr.Dropdown(
                     choices=supported_models,
-                    value=supported_models[0],
+                    value=default_model,
                     label="Zonos Model Type",
                     info="Select the model variant to use.",
                 )
@@ -320,7 +380,12 @@ def build_interface():
             generate_button = gr.Button("Generate Audio")
             output_audio = gr.Audio(label="Generated Audio", type="numpy", autoplay=True)
 
+        # Add model saving to model_choice.change event
         model_choice.change(
+            fn=lambda x, y: speaker_cache.save_last_model(x, y),
+            inputs=[model_choice, speaker_audio],
+            outputs=None,
+        ).then(
             fn=update_ui,
             inputs=[model_choice],
             outputs=[
@@ -373,8 +438,12 @@ def build_interface():
             ],
         )
 
-        # Generate audio on button click
+        # Also save model choice when generating audio
         generate_button.click(
+            fn=lambda x, y: speaker_cache.save_last_model(x, y),
+            inputs=[model_choice, speaker_audio],
+            outputs=None,
+        ).then(
             fn=generate_audio,
             inputs=[
                 model_choice,
@@ -412,8 +481,10 @@ def build_interface():
 
     return demo
 
-
+"""Running the Web Interface
+    Launches the Gradio web server at localhost:7860.
+   If GRADIO_SHARE=True, the interface becomes accessible over the internet."""
 if __name__ == "__main__":
     demo = build_interface()
     share = getenv("GRADIO_SHARE", "False").lower() in ("true", "1", "t")
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=share)
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
