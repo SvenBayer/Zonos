@@ -3,6 +3,36 @@
 This repository contains a files to create Docker container to run Zonos with an API. For easy usage, just copy the docker-compose.yml and pull the Docker container sven-bayer/zonos-api
 https://hub.docker.com/repository/docker/svenbayer/zonos-api/general
 
+## API
+
+You can send your Post request with the following parameters in the body. Otherwise, the parameters use the default values. fmax is sset to 48000 so you get a high quality voice. in unconditional_keys, "pitch_std" is added and therefore disabled. This will make the voice more variable and not so monotonous.
+
+```
+text: str
+    language: str = "en-us"
+    emotion:
+         """Emotion values for speech synthesis"""
+         happiness: float = Field(default=1.0, ge=0.0, le=1.0)
+         sadness: float = Field(default=0.05, ge=0.0, le=1.0)
+         disgust: float = Field(default=0.05, ge=0.0, le=1.0)
+         fear: float = Field(default=0.05, ge=0.0, le=1.0)
+         surprise: float = Field(default=0.05, ge=0.0, le=1.0)
+         anger: float = Field(default=0.05, ge=0.0, le=1.0)
+         other: float = Field(default=0.1, ge=0.0, le=1.0)
+         neutral: float = Field(default=0.2, ge=0.0, le=1.0)
+    vq_single: float = 0.78
+    fmax: float = 48000
+    pitch_std: float = 45.0
+    speaking_rate: float = 15.0
+    dnsmos_ovrl: float = 4.0
+    speaker_noised: bool = False
+    cfg_scale: float = 2.0
+    seed: int = 420
+    randomize_seed: bool = True
+    # "speaker", "emotion", "vqscore_8", "fmax", "pitch_std", "speaking_rate", "dnsmos_ovrl", "speaker_noised"
+    unconditional_keys: List[str] = ["pitch_std"]
+```
+
 ---
 
 This repository contains everything to run Zonos in Docker, even on Windows. It exposes an API on port 7861 that you can try out with this Postman script. Make sure to first create your refrence audio folder. See the description at the bottom.
