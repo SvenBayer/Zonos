@@ -82,7 +82,7 @@ class TTSRequest(BaseModel):
     language: str = "en-us"
     emotion: Emotion = Field(default_factory=Emotion)
     vq_single: float = 0.78
-    fmax: float = 48000
+    fmax: float = 41000
     pitch_std: float = 45.0
     speaking_rate: float = 15.0
     dnsmos_ovrl: float = 4.0
@@ -176,8 +176,11 @@ async def synthesize_speech(request: TTSRequest):
         if wav_out.size(0) > 1:
             wav_out = wav_out[0:1, :]
 
+        # Convert to 16-bit by scaling and converting dtype
+        wav_out = (wav_out * 32767).clamp(-32768, 32767).to(torch.int16)
+
         buffer = BytesIO()
-        torchaudio.save(buffer, wav_out, sr_out, format="wav")
+        torchaudio.save(buffer, wav_out, sr_out, format="wav", encoding='PCM_S', bits_per_sample=16)
         buffer.seek(0)
 
         return StreamingResponse(

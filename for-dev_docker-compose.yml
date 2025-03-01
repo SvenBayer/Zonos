@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: sven-bayer/zonos-api:v0.1.2
+    image: sven-bayer/zonos-api
     container_name: zonos-api
 
     # Start the API server
@@ -18,11 +18,10 @@ services:
 
     # Mount reference audio folder
     volumes:
-      - ./ref_audio:/app/ref_audio
-      # Use these mounted folders instead if you want to have cached data
-      # - ../cache/ref_audio:/app/ref_audio
-      # - ../cache/huggingface:/root/.cache/huggingface
-      # - ../cache/tmp:/app/tmp
+      - ../cache/ref_audio:/app/ref_audio
+      - ../cache/huggingface:/root/.cache/huggingface
+      - ../cache/tmp:/app/tmp
+      - ./:/app
 
     # Share the host network stack
     # (This makes the container’s port 7861 available directly on the host)
